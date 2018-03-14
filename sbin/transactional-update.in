@@ -649,11 +649,7 @@ if [ -n "${ZYPPER_ARG}" -o ${REWRITE_GRUB_CFG} -eq 1 \
         rm -f ${SNAPSHOT_DIR}/var/update_snapshot.test
     fi
 
-    # On a read only system, make sure that /etc/zypp in the
-    # snapshot is current, could come from a overlayfs which
-    # means not part of the snapshot itself
     if [ ${RO_ROOT} == "true" ]; then
-	DIR_TO_MOUNT="${DIR_TO_MOUNT} etc/zypp"
 	if [ ${RUN_SHELL} -eq 1 ]; then
 	    DIR_TO_MOUNT="${DIR_TO_MOUNT} root"
 	fi

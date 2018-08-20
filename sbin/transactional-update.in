@@ -114,7 +114,7 @@ usage() {
     echo "dup                Call 'zypper dup --no-allow-vendor-change'"
     echo "up                 Call 'zypper up'"
     echo "patch              Call 'zypper patch'"
-    echo "migration [-n]     Updates systems registered via SCC / SMT"
+    echo "migration          Updates systems registered via SCC / SMT"
     echo "pkg install ...    Install individual packages"
     echo "pkg remove ...     Remove individual packages"
     echo "pkg update ...     Updates individual packages"
@@ -123,6 +123,7 @@ usage() {
     echo "rollback <number>  Set given snapshot as default snapshot"
     echo ""
     echo "Options:"
+    echo "--interactive, -i  Wait for user input on questions"
     echo "--no-selfupdate    Skip checking for newer version"
     echo "--quiet            Don't print warnings and infos to stdout"
     echo "--help             Display this help and exit"
@@ -429,6 +430,7 @@ while [ 1 ]; do
 		    ;;
 		remove|rm)
 		    ZYPPER_ARG="remove"
+		    ZYPPER_NONINTERACTIVE="-y"
 		    shift
 		    ;;
 		update|up)
@@ -452,28 +454,17 @@ while [ 1 ]; do
 		    shift
 		fi
 	    done
-            # Interactively run installing PTFs
-            ZYPPER_NONINTERACTIVE=""
 	    ;;
 	migration)
 	    __NO_RESET=0
 	    DO_MIGRATION=1
 	    ZYPPER_ARG="migration --no-snapshots --no-selfupdate"
+	    if [ -n "${ZYPPER_NONINTERACTIVE}" ]; then
+		# non interative option is named different for
+		# different commands ...
+		ZYPPER_NONINTERACTIVE="--non-interactive --auto-agree-with-licenses"
+	    fi
 	    shift
-	    if [ $# -ge 1 ]; then
-	        case "$1" in
-	            -n|--non-interactive)
-                        # non interative option is named different for
-                        # different commands ...
-                        ZYPPER_NONINTERACTIVE="--non-interactive --auto-agree-with-licenses"
-			__NO_RESET=1
-			shift
-	                ;;
-	        esac
-	    fi
-	    if [ ${__NO_RESET} -eq 0 ]; then
-		ZYPPER_NONINTERACTIVE=""
-	    fi
 	    ;;
 	bootloader)
 	    REWRITE_BOOTLOADER=1
@@ -522,6 +513,10 @@ while [ 1 ]; do
 	    ;;
 	--quiet)
 	    VERBOSITY=1
+	    shift
+	    ;;
+	--interactive|-i)
+	    ZYPPER_NONINTERACTIVE=""
 	    shift
 	    ;;
 	register)
@@ -743,6 +738,7 @@ if [ -n "${ZYPPER_ARG}" -o ${REWRITE_GRUB_CFG} -eq 1 \
 	    log_error "ERROR: Zypper failed with the following message(s):"
 	    log_error "${LOG_MESSAGES}"
             rm -f ${TMPFILE}
+	    echo "Use '--interactive' for manual problem resolution."
 	    quit 1
 	fi
 	PACKAGE_UPDATES=`grep "install-summary download-size" ${TMPFILE} | sed -e 's|.*install-summary download-size=\"\(.*\)\" space-usage-diff.*|\1|g'`

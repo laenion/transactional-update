@@ -222,17 +222,14 @@ for more information.
   same time. Can be combined with any number of
   <link linkend='general_commands'>General Commands</link>.
 </para>
-<refsect3 id='ni_pkg_commands'><title>Non-interactive Package Commands</title>
 <para>
-  Non-interactive Package Commands are designed to be called from scripts and
-  will require no user interaction. Note that when combining Non-interactive
-  Package Commands with
+  By default <command>zypper</command> will be called non-interactively, so in
+  case of questions the default answer will be assumed. It is possible to
+  change this behavior using the <option>--interactive</option> option, e.g.
+  to resolve conflicts manually.
+  Note that when combining Package Commands in non-interactive mode with
   <link linkend='general_commands'>General Commands</link> those will only be
   executed if the Package Command updated any packages.
-</para>
-<para>In case a user decision is needed it has to be resolved by using one
-  of the <link linkend='i_pkg_commands'>Interactive Package Commands</link> or
-  <command>zypper</command> first.
 </para>
 <variablelist>
   <varlistentry>
@@ -268,21 +265,13 @@ for more information.
       </para>
     </listitem>
   </varlistentry>
-</variablelist>
-</refsect3>
-<refsect3 id='i_pkg_commands'><title>Interactive Package Commands</title>
-<para>
-  Interactive Package Commands may require user interaction to solve conflicts
-  or make decisions.
-</para>
-<variablelist>
   <varlistentry>
-    <term><option>migration</option> <optional>-n</optional></term>
+    <term><option>migration</option></term>
     <listitem>
       <para>
 	On systems which are registered against the SUSE Customer Center (SCC)
 	or SMT, a migration to a new version of the installed products can be
-	made with	this option. This is done in an interactive mode.
+	made with this option. This is done in an interactive mode.
       </para>
     </listitem>
   </varlistentry>
@@ -312,7 +301,6 @@ for more information.
     </listitem>
   </varlistentry>
 </variablelist>
-</refsect3>
 </refsect2>
 <refsect2 id='standalone_commands'><title>Standalone Commands</title>
 <variablelist>
@@ -338,6 +326,14 @@ for more information.
 </refsect1>
 <refsect1 id='options'><title>OPTIONS</title>
 <variablelist>
+  <varlistentry>
+    <term><option>--interactive</option> / <option>-i</option></term>
+    <listitem>
+      <para>
+        Call zypper in interactive mode instead of assuming the default answers.
+      </para>
+    </listitem>
+  </varlistentry>
   <varlistentry>
     <term><option>--no-selfupdate</option></term>
     <listitem>

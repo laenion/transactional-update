@@ -67,6 +67,16 @@ int tukit_tx_execute(tukit_tx tx, char* argv[]) {
         return -1;
     }
 }
+int tukit_tx_execute_none_chroot(tukit_tx tx, char* argv[]) {
+    Transaction* transaction = reinterpret_cast<Transaction*>(tx);
+    try {
+        return transaction->callExt(argv);
+    } catch (const std::exception &e) {
+        fprintf(stderr, "ERROR: %s\n", e.what());
+        errmsg = e.what();
+        return -1;
+    }
+}
 int tukit_tx_finalize(tukit_tx tx) {
     Transaction* transaction = reinterpret_cast<Transaction*>(tx);
     try {

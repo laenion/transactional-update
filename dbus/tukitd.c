@@ -7,7 +7,6 @@
 #include <systemd/sd-event.h>
 #include <unistd.h>
 #include <wordexp.h>
-#include <dbus-1.0/dbus/dbus.h>
 
 typedef struct t_entry {
     char* id;
@@ -101,7 +100,9 @@ static int method_open(sd_bus_message *m, void *userdata, sd_bus_error *ret_erro
     return sd_bus_reply_method_return(m, "s", snapid);
 }
 
-static int method_call(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
+
+static int execute(sd_bus_message *m, void *userdata,
+		   sd_bus_error *ret_error, const int chrooted) {
     char *transaction;
     char *command;
     char *kind;
@@ -137,76 +138,44 @@ static int method_call(sd_bus_message *m, void *userdata, sd_bus_error *ret_erro
 
     // Asynchron from here (if selected)
 
-
-    sd_bus *bus = NULL;
-    ret = sd_bus_open_system(&bus);
-    if (ret < 0) {
-        fprintf(stderr, "Failed to connect to system bus: %s\n", strerror(-ret));
-        goto finish_call;
-    }
-    ret = sd_bus_emit_signal(bus, "/org/opensuse/tukit", "org.opensuse.tukit", "CommandExecuted2", "sis", transaction, ret, "output");
-    if (ret < 0) {
-        fprintf(stderr, "Cannot send signal 'CommandExecuted': %s\n", strerror(-ret));
-    }
-    ret = sd_bus_flush(bus);
-    if (ret < 0) {
-        fprintf(stderr, "sd_bus_flush: %s\n", strerror(-ret));
-    }
-    sd_bus_close(bus);
-    sd_bus_unref(bus);
-
-
     ret = lockSnapshot(userdata, transaction, ret_error);
     if (ret != 0) {
         return ret;
     }
 
-    pid_t child = fork();
-    if (child == -1) {
-        sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", "Forking failed.");
-        return -1;
-    }
-    // Return to main loop and process command asynchronously
-    if (child != 0) {
-        return sd_bus_reply_method_return(m, "");
-    }
-
-    // Async from here
     struct tukit_tx* tx = tukit_new_tx();
     if (tx == NULL) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", tukit_get_errmsg());
-	goto finish_call;
+	goto finish_execute;
     }
     if (tukit_tx_resume(tx, transaction) != 0) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", tukit_get_errmsg());
-        goto finish_call;
+        goto finish_execute;
     }
 
     // Redirect output to be able to return it to the caller
     stdout_orig = dup(1);
     if (stdout_orig < 0) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", "Couldn't store old stdout file descriptor.");
-        goto finish_call;
+        goto finish_execute;
     }
     stderr_orig = dup(2);
     if (stderr_orig < 0) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", "Couldn't store old stderr file descriptor.");
-        goto finish_call;
+        goto finish_execute;
     }
-    /*
     if (pipe(pipefd) != 0) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", "Error opening pipe for command output.");
-        goto finish_call;
+        goto finish_execute;
     }
     if (dup2(pipefd[1], 1) < 0) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", "Couldn't set pipe for stdout.");
-        goto finish_call;
+        goto finish_execute;
     }
     if (dup2(pipefd[1], 2) < 0) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", "Couldn't set pipe for stderr.");
-        goto finish_call;
+        goto finish_execute;
     }
-    */
 
     ret = wordexp(command, &p, 0);
     if (ret != 0) {
@@ -214,10 +183,15 @@ static int method_call(sd_bus_message *m, void *userdata, sd_bus_error *ret_erro
             wordfree(&p);
         }
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.error", "Command could not be processed.");
-        goto finish_call;
+        goto finish_execute;
     }
 
-    ret = tukit_tx_execute(tx, p.we_wordv);
+    if (chrooted) {
+      ret = tukit_tx_execute(tx, p.we_wordv);
+    } else {
+      ret = tukit_tx_execute_none_chroot(tx, p.we_wordv);
+    }
+    
     wordfree(&p);
 
     char buffer[2048];
@@ -249,17 +223,17 @@ static int method_call(sd_bus_message *m, void *userdata, sd_bus_error *ret_erro
       ret = sd_bus_default_system(&bus);
       if (ret < 0) {
 	 sd_bus_error_setf(ret_error, "org.opensuse.tukit.error", "Failed to connect to system bus: %s\n", strerror(-ret));
-         goto finish_call;
+         goto finish_execute;
       }
       ret = sd_bus_emit_signal(bus, "/org/opensuse/tukit", "org.opensuse.tukit", "CommandExecuted", "sis", transaction, ret, output);
       if (ret < 0) {
 	 sd_bus_error_setf(ret_error, "org.opensuse.tukit.error", "Cannot send signal 'CommandExecuted': %s\n", strerror(-ret));
-         goto finish_call;
+         goto finish_execute;
       }
       ret = sd_bus_flush(bus);
       if (ret < 0) {
          sd_bus_error_setf(ret_error, "org.opensuse.tukit.error", "sd_bus_flush: %s\n", strerror(-ret));
-         goto finish_call;
+         goto finish_execute;
       }
       sd_bus_close(bus);
       sd_bus_unref(bus);
@@ -268,9 +242,8 @@ static int method_call(sd_bus_message *m, void *userdata, sd_bus_error *ret_erro
     }
 
     free(output);
-    printf("Wo bin ich?\n");
 
-finish_call:
+finish_execute:
     if (stdout_orig != 0) {
         dup2(stdout_orig, 1);
         close(stdout_orig);
@@ -290,6 +263,14 @@ finish_call:
     }
 
     return ret;
+}
+
+static int method_call(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
+  return execute(m, userdata, ret_error, 1); /* 1 = chrooted into the snapshot */
+}
+
+static int method_callext(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
+  return execute(m, userdata, ret_error, 0); /* 0 = NOT chrooted into the snapshot */
 }
 
 static int method_close(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
@@ -361,6 +342,8 @@ static const sd_bus_vtable tukit_vtable[] = {
     SD_BUS_METHOD_WITH_ARGS("open", SD_BUS_ARGS("s", base), SD_BUS_RESULT("s", snapshot), method_open, 0),
     SD_BUS_METHOD_WITH_ARGS("call", SD_BUS_ARGS("s", transaction, "s", command, "s", kind),
 			    SD_BUS_RESULT("i", ret, "s", output), method_call, 0),
+    SD_BUS_METHOD_WITH_ARGS("callext", SD_BUS_ARGS("s", transaction, "s", command, "s", kind),
+			    SD_BUS_RESULT("i", ret, "s", output), method_callext, 0),
     SD_BUS_METHOD_WITH_ARGS("close", SD_BUS_ARGS("s", transaction), SD_BUS_RESULT("i", ret), method_close, 0),
     SD_BUS_METHOD_WITH_ARGS("abort", SD_BUS_ARGS("s", transaction), SD_BUS_RESULT("i", ret), method_abort, 0),
     SD_BUS_SIGNAL_WITH_ARGS("TransactionOpened", SD_BUS_ARGS("s", snapshot), 0),
@@ -371,7 +354,6 @@ static const sd_bus_vtable tukit_vtable[] = {
 int main() {
     sd_bus_slot *slot = NULL;
     sd_bus *bus = NULL;
-    sd_bus *bus2 = NULL;
     sd_event *event = NULL;
     int ret;
 
@@ -437,28 +419,6 @@ int main() {
         goto finish;
     }
 
-    /*
-    ret = sd_bus_emit_signal(bus, "/org/opensuse/tukit", "org.opensuse.tukit", "CommandExecuted", "sis", "transaction", ret, "output");
-    ret = sd_bus_open_system(&bus2);
-    if (ret < 0) {
-        fprintf(stderr, "Failed to connect to system bus: %s\n", strerror(-ret));
-        goto finish;
-    }
-    ret = sd_bus_emit_signal(bus2, "/org/opensuse/tukit2", "org.opensuse.tukit2", "CommandExecuted2", "sis", "transaction", ret, "output");
-    if (ret < 0) {
-        fprintf(stderr, "bla: %s\n", strerror(-ret));
-        goto finish;
-    }
-    goto finish;
-    */
-
-    // Zentrale ID-Verwaltung einführen: Welche Snapshots geöffnet sind wird hier gespeichert,
-    // ist ein Snapshot schon offen wird der Zugriff verwehrt.
-    // Alle Aktionen sind grundsätzlich asynchron, das Ergebnis kommt - mit Ausnahme beim
-    // Öffnen eines Snapshots - als Signal zurück, nach dessen Empfang der Snapshot
-    // wieder freigegeben wird. Dazu muss die tatsächliche Aktion in der Event-Loop
-    // angestoßen werden.
-
     ret = sd_event_loop(event);
     if (ret < 0) {
         fprintf(stderr, "Error while running event loop: %s\n", strerror(-ret));
@@ -476,8 +436,6 @@ finish:
     sd_event_unref(event);
     sd_bus_slot_unref(slot);
     sd_bus_unref(bus);
-
-    wait(NULL);
 
     return ret < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
 }

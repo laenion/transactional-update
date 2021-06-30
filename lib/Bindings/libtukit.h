@@ -27,6 +27,7 @@ void tukit_free_tx(tukit_tx tx);
 int tukit_tx_init(tukit_tx tx, char* base);
 int tukit_tx_resume(tukit_tx tx, char* id);
 int tukit_tx_execute(tukit_tx tx, char* argv[]);
+int tukit_tx_execute_none_chroot(tukit_tx tx, char* argv[]);  
 int tukit_tx_finalize(tukit_tx tx);
 int tukit_tx_keep(tukit_tx tx);
 int tukit_tx_is_initialized(tukit_tx tx);

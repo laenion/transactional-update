@@ -83,7 +83,7 @@ public:
      *
      * Note that @param is following the default C style syntax:
      * @example: char *args[] = {(char*)"zypper", (char*)"-R", (char*)"{}", (char*)"up", NULL};
-                 int status = transaction.execute(args);
+                 int status = transaction.callExt(args);
      */
     int callExt(char* argv[]);
 

@@ -37,7 +37,7 @@ The return value will also be submitted via a signal.
 > busctl call org.opensuse.tukit /org/opensuse/tukit org.opensuse.tukit open "s" "default"
 
 ### call
-Executes the given command from within the transaction's chroot environment, resuming the
+Executes the given command from within the transaction's **chroot environment**, resuming the
 transaction with the given ID; returns the exit status and the result of the given command.
 But it will not delete the snapshot in case of errors.
 
@@ -63,10 +63,45 @@ The returned signal has the same content like the return value of `synchron` cal
 `busctl` Example:
 
 * `synchron` call with ID `536` and `ls` command::q
-  > busctl call org.opensuse.tukit /org/opensuse/tukit org.opensuse.tukit call "sss" "536" "bash -c 'ls'" "asynchron"
+  > busctl call org.opensuse.tukit /org/opensuse/tukit org.opensuse.tukit call "sss" "536" "bash -c 'ls'" "synchron"
 
 * `asynchron` call with ID `536` and `ls` command:
   > busctl call org.opensuse.tukit /org/opensuse/tukit org.opensuse.tukit call "sss" "536" "bash -c 'ls'" "asynchron"
+  
+  The returned signal can be monitored by:
+  > busctl --system --match "interface='org.opensuse.tukit'" monitor
+
+### callext
+Executes the given command. The command is **not** executed in a **chroot environment**, but instead runs
+in the current system, replacing '{}' with the mount directory of the given snapshot.
+Returns the exit status of the given command, but will not delete the snapshot in case of errors
+
+Parameter:
+* unique ID (string)
+* command (string)
+* kind (string) "synchron" or "asynchron".
+  * "synchron". The command will be executed and the process waits for the result which will be
+    returend.
+  * "asynchron". The command will be executed in an own child process and the call will return
+    at once.
+    The result of the child process will be sent via a signal.
+
+Return value while a `synchron` call:
+* return value of the command (integer)
+* output of the command (string)
+
+Return value while a `asynchron` call:
+* 0 (integer)
+* fix string: "Results will be sent via signal."
+The returned signal has the same content like the return value of `synchron` call.
+
+`busctl` Example:
+
+* `synchron` call with ID `536` and `mv` command::q
+  > busctl call org.opensuse.tukit /org/opensuse/tukit org.opensuse.tukit callext "sss" "536" "bash -c 'mv /tmp/mylib {}/usr/lib'" "synchron"
+
+* `asynchron` call with ID `536` and `mv` command:
+  > busctl call org.opensuse.tukit /org/opensuse/tukit org.opensuse.tukit callext call "sss" "536" "bash -c 'mv /tmp/mylib {}/usr/lib'" "asynchron"
   
   The returned signal can be monitored by:
   > busctl --system --match "interface='org.opensuse.tukit'" monitor

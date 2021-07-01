@@ -245,10 +245,14 @@ int Transaction::execute(char* argv[]) {
 
 int Transaction::callExt(char* argv[]) {
     for (int i=0; argv[i] != nullptr; i++) {
-        if (strcmp(argv[i], "{}") == 0) {
-            char* bindDir = strdup(pImpl->bindDir.c_str());
-            argv[i] = bindDir;
-        }
+        std::string s = std::string(argv[i]);
+        std::string from = "{}";
+        // replacing all {} by bindDir
+        for(size_t pos = 0;
+           (pos = s.find(from, pos)) != std::string::npos;
+           pos += pImpl->bindDir.size())
+            s.replace(pos, from.size(), pImpl->bindDir);
+        argv[i] = strdup(s.c_str());
     }
     return this->pImpl->runCommand(argv, false);
 }

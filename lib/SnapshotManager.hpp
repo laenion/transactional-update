@@ -26,7 +26,7 @@ public:
     virtual ~SnapshotManager() = default;
     virtual std::unique_ptr<Snapshot> create(std::string base) = 0;
     virtual std::unique_ptr<Snapshot> open(std::string id) = 0;
-    virtual std::deque<std::map<std::string, std::string>> getList(std::string columns = "") = 0;
+    virtual std::deque<std::map<std::string, std::string>> getList(std::string columns) = 0;
     virtual std::string getCurrent() = 0;
     virtual std::string getDefault() = 0;
 };

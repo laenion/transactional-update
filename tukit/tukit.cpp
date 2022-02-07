@@ -54,7 +54,7 @@ void TUKit::displayHelp() {
     cout << "--discard, -d                Discard snapshot if no files were changed in root\n";
     cout << "\n";
     cout << "Snapshot Commands:\n";
-    cout << "transactions\n";
+    cout << "snapshots\n";
     cout << "\tPrints a list of all available transactions\n";
     cout << "\n";
     cout << "Snapshot Options:\n";
@@ -183,6 +183,9 @@ int TUKit::processCommand(char *argv[]) {
     }
     else if (arg == "snapshots") {
         unique_ptr<TransactionalUpdate::SnapshotManager> snapshotMgr = TransactionalUpdate::SnapshotFactory::get();
+        if (fields.empty()) {
+            fields = "number";
+        }
         for(auto value: snapshotMgr->getList(fields)) {
             stringstream fieldsStream(fields);
             for (string field; getline(fieldsStream, field, ','); ) {

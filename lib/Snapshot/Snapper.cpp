@@ -32,6 +32,14 @@ std::unique_ptr<Snapshot> Snapper::open(std::string id) {
 
 std::deque<std::map<std::string, std::string>> Snapper::getList(std::string columns) {
     std::deque<std::map<std::string, std::string>> snapshotList;
+
+    // Sanitize user input
+    if (! std::all_of(columns.begin(), columns.end(), [](char c) {
+           return (std::isalpha(c) || c == ',');
+        })) {
+        throw std::invalid_argument{"Column list contains invalid characters."};
+    }
+
     if (columns.empty())
         columns="number,date,description";
     std::string snapshots = callSnapper("--csvout list --columns " + columns);

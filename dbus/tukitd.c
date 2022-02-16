@@ -619,7 +619,7 @@ static const sd_bus_vtable tukit_transaction_vtable[] = {
 
 static const sd_bus_vtable tukit_snapshot_vtable[] = {
     SD_BUS_VTABLE_START(0),
-    SD_BUS_METHOD_WITH_ARGS("list", SD_BUS_ARGS("s", columns), SD_BUS_RESULT("aas", list), snapshot_list, 0),
+    SD_BUS_METHOD_WITH_ARGS("List", SD_BUS_ARGS("s", columns), SD_BUS_RESULT("aas", list), snapshot_list, 0),
     SD_BUS_VTABLE_END
 };
 

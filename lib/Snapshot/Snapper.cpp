@@ -42,7 +42,7 @@ std::deque<std::map<std::string, std::string>> Snapper::getList(std::string colu
 
     if (columns.empty())
         columns="number,date,description";
-    std::string snapshots = callSnapper("--csvout list --columns " + columns);
+    std::string snapshots = callSnapper("--utc --iso --csvout list --columns " + columns);
     std::stringstream snapshotsStream(snapshots);
 
     // Headers

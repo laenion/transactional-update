@@ -168,10 +168,10 @@ tukit_sm_list tukit_sm_get_list(size_t* len, const char* columns) {
     const size_t numColumns = std::count(cols.begin(), cols.end(), ',') + 1;
 
     auto result = new std::vector<std::vector<std::string>>();
-    for (int i=0; i<*len; i++) {
+    for (size_t i=0; i<*len; i++) {
         std::vector<std::string> row;
         std::stringstream columnStream(columns);
-        for (int j=0; j<numColumns; j++) {
+        for (size_t j=0; j<numColumns; j++) {
             std::string column;
             getline(columnStream, column, ',');
             //auto row = new std::vector<const char*>();
@@ -180,31 +180,6 @@ tukit_sm_list tukit_sm_get_list(size_t* len, const char* columns) {
         result->push_back(row);
     }
 
-    /*
-    void* result = new void*[len];
-    for (int i=0; i<len; i++) {
-        std::stringstream columnStream(columns);
-        for (int j=0; j<numColumns; j++) {
-            void* row = new char*[numColumns];
-            std::string column;
-            getline(columnStream, column, ',');
-            result[i][j] = list[i][column].c_str();
-        }
-    }
-
-
-    std::array<std::array<char*, numColumns>, len> result;
-    auto result = new res[len][numColumns];
-    //const char* result[len][numColumns];
-    for (int i=0; i<len; i++) {
-        std::stringstream columnStream(columns);
-        for (int j=0; j<numColumns; j++) {
-            std::string column;
-            getline(columnStream, column, ',');
-            result[i][j] = list[i][column].c_str();
-        }
-    }
-    */
     return reinterpret_cast<tukit_sm_list>(result);
 }
 
@@ -213,6 +188,7 @@ const char* tukit_sm_get_list_value(tukit_sm_list list, size_t row, size_t colum
     return result->at(row).at(column).c_str();
 }
 
-void tukit_sm_list_free(tukit_sm_list list) {
-
+void tukit_free_sm_list(tukit_sm_list list) {
+    auto result = reinterpret_cast<std::vector<std::vector<std::string>>*>(list);
+    delete result;
 }

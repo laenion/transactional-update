@@ -543,7 +543,6 @@ finish_abort:
 
 static int snapshot_list(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
     char *columns;
-    int ret = 0;
     size_t list_len = 0;
     int columnnum = 1;
 
@@ -555,18 +554,13 @@ static int snapshot_list(sd_bus_message *m, void *userdata, sd_bus_error *ret_er
     for (int i=0; columns[i]; i++)
         columnnum += (columns[i] == ',');
 
-    /*
-    char* columnarr[columnnum];
-    columnarr[0] = strtok(columns, ",");
-    for (int i=1; i<columnnum; i++) {
-        columnarr[i] = strtok(NULL, ",");
-    }
-    */
-
     struct tukit_sm_list* list = tukit_sm_get_list(&list_len, columns);
 
     sd_bus_message *message = NULL;
-    sd_bus_message_new_method_return(m, &message);
+    if (sd_bus_message_new_method_return(m, &message) < 0) {
+        sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", "Creating new return method failed.");
+        return -1;
+    }
     if (sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "as") < 0 ) {
         sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", "Creating container (array of snapshots) failed.");
         return -1;
@@ -577,12 +571,27 @@ static int snapshot_list(sd_bus_message *m, void *userdata, sd_bus_error *ret_er
             return -1;
         }
         for (int j=0; j < columnnum; j++) {
-            sd_bus_message_append(message, "s", tukit_sm_get_list_value(list, i, j));
+            if (sd_bus_message_append(message, "s", tukit_sm_get_list_value(list, i, j)) < 0) {
+                sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", "Couldn't append to message (container).");
+                return -1;
+            }
         }
-        sd_bus_message_close_container(message);
+        if (sd_bus_message_close_container(message) < 0) {
+            sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", "Closing container (array of snapshot data) failed.");
+            return -1;
+        }
     }
-    sd_bus_message_close_container(message);
-    return sd_bus_message_send(message);
+    if (sd_bus_message_close_container(message) < 0) {
+        sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", "Closing container (array of snapshot data) failed.");
+        return -1;
+    }
+    if (sd_bus_send(sd_bus_message_get_bus(message), message, NULL) < 0) {
+        sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", "Sending message failed.");
+        return -1;
+    }
+    sd_bus_message_unref(message);
+    tukit_free_sm_list(list);
+    return 0;
 }
 
 int event_handler(sd_event_source *s, const struct signalfd_siginfo *si, void *userdata) {
@@ -626,7 +635,8 @@ static const sd_bus_vtable tukit_snapshot_vtable[] = {
 int main() {
     fprintf(stdout, "Started tukitd %s\n", VERSION);
 
-    sd_bus_slot *slot = NULL;
+    sd_bus_slot *slot_tx = NULL;
+    sd_bus_slot *slot_snap = NULL;
     sd_bus *bus = NULL;
     sd_event *event = NULL;
     int ret = 1;
@@ -646,7 +656,7 @@ int main() {
     }
 
     ret = sd_bus_add_object_vtable(bus,
-                                   &slot,
+                                   &slot_tx,
                                    "/org/opensuse/tukit/Transaction",
                                    "org.opensuse.tukit.Transaction",
                                    tukit_transaction_vtable,
@@ -657,11 +667,11 @@ int main() {
     }
 
     ret = sd_bus_add_object_vtable(bus,
-                                   &slot,
+                                   &slot_snap,
                                    "/org/opensuse/tukit/Snapshot",
                                    "org.opensuse.tukit.Snapshot",
                                    tukit_snapshot_vtable,
-                                   activeTransactions);
+                                   NULL);
     if (ret < 0) {
         fprintf(stderr, "Failed to issue method call: %s\n", strerror(-ret));
         goto finish;
@@ -734,7 +744,8 @@ finish:
     }
     free(activeTransactions);
     sd_event_unref(event);
-    sd_bus_slot_unref(slot);
+    sd_bus_slot_unref(slot_tx);
+    sd_bus_slot_unref(slot_snap);
     sd_bus_unref(bus);
 
     return ret < 0 ? EXIT_FAILURE : EXIT_SUCCESS;

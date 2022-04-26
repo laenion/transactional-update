@@ -43,6 +43,7 @@ const char* tukit_sm_get_list_value(tukit_sm_list list, size_t row, size_t colum
 void tukit_free_sm_list(tukit_sm_list list);
 int tukit_sm_deletesnap(const char* id);
 int tukit_reboot(const char* method);
+int tukit_reboot_is_scheduled(const char* method);
 
 #ifdef __cplusplus
 }

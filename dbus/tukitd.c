@@ -642,6 +642,32 @@ finish_snapshotlist:
     return ret;
 }
 
+static int snapshot_delete(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
+    char *snapshot;
+    int ret = 0;
+
+    if (sd_bus_message_read(m, "s", &snapshot) < 0) {
+        sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", "Could not read D-Bus parameters.");
+        return -1;
+    }
+    ret = lockSnapshot(userdata, snapshot, ret_error);
+    if (ret != 0) {
+        return ret;
+    }
+    if ((ret = tukit_sm_deletesnap(snapshot)) != 0) {
+        sd_bus_error_set_const(ret_error, "org.opensuse.tukit.Error", tukit_get_errmsg());
+        goto finish_delete;
+    }
+
+    fprintf(stdout, "Snapshot %s deleted.\n", snapshot);
+    sd_bus_reply_method_return(m, "i", ret);
+
+finish_delete:
+    unlockSnapshot(userdata, snapshot);
+
+    return ret;
+}
+
 int event_handler(sd_event_source *s, const struct signalfd_siginfo *si, void *userdata) {
     TransactionEntry* activeTransaction = userdata;
     if (activeTransaction->id != NULL) {
@@ -678,6 +704,7 @@ static const sd_bus_vtable tukit_transaction_vtable[] = {
 static const sd_bus_vtable tukit_snapshot_vtable[] = {
     SD_BUS_VTABLE_START(0),
     SD_BUS_METHOD_WITH_ARGS("List", SD_BUS_ARGS("s", columns), SD_BUS_RESULT("aas", list), snapshot_list, 0),
+    SD_BUS_METHOD_WITH_ARGS("DeleteSnapshot", SD_BUS_ARGS("s", snapshot), SD_BUS_RESULT("i", ret), snapshot_delete, 0),
     SD_BUS_VTABLE_END
 };
 
@@ -720,7 +747,7 @@ int main() {
                                    "/org/opensuse/tukit/Snapshot",
                                    "org.opensuse.tukit.Snapshot",
                                    tukit_snapshot_vtable,
-                                   NULL);
+                                   activeTransactions);
     if (ret < 0) {
         fprintf(stderr, "Failed to issue method call: %s\n", strerror(-ret));
         goto finish;

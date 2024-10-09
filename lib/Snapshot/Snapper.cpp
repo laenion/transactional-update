@@ -7,7 +7,9 @@
 
 #include "Snapper.hpp"
 #include "Exceptions.hpp"
+#include "Mount.hpp"
 #include "Util.hpp"
+#include <fstream>
 #include <regex>
 
 namespace TransactionalUpdate {
@@ -19,6 +21,22 @@ std::unique_ptr<Snapshot> Snapper::create(std::string base, std::string descript
         throw std::invalid_argument{"Base snapshot '" + base + "' does not exist."};
     snapshotId = callSnapper("create --from " + base + " --read-write --cleanup-algorithm number --print-number --description '" + description + "' --userdata 'transactional-update-in-progress=yes'");
     Util::rtrim(snapshotId);
+    if (Mount{"/etc"}.isMount()) {
+        if (base == getCurrent()) {
+            Util::exec("btrfs subvolume snapshot \"/.snapshots/" + snapshotId + "/snapshot/etc\" \"/.snapshots/" + snapshotId + "/snapshot/etc/etc.syncpoint\"");
+            std::ofstream statefile("/.snapshots/" + snapshotId + "/snapshot/etc/etc.syncpoint/transactional-update.comparewith");
+            statefile << base;
+            statefile.close();
+        } else if (std::filesystem::exists("/.snapshots/" + base + "/snapshot/etc/etc.syncpoint")) { // A consecutive snapshot based on the current system
+            // std::string baseId;
+            // std::ifstream statefile;
+            // statefile.open("/.snapshots/" + base + "/snapshot/etc/etc.syncpoint/transactional-update.comparewith");
+            // statefile >> baseId;
+            // statefile.close();
+            std::filesystem::remove_all("/.snapshots/" + snapshotId + "/snapshot/etc/etc.syncpoint");
+            Util::exec("btrfs subvolume snapshot \"/.snapshots/" + base + "/snapshot/etc/etc.syncpoint\" \"/.snapshots/" + snapshotId + "/snapshot/etc/etc.syncpoint\"");
+        }
+    }
     return std::make_unique<Snapper>(snapshotId);
 }
 

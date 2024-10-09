@@ -2,8 +2,8 @@
 #
 # Check for conflicts in etc overlay on first boot after creating new snapshot
 #
-# Author: Ignaz Forster <iforster@suse.de>
-# Copyright (C) 2018 SUSE Linux GmbH
+# Author: Ignaz Forster <iforster@suse.com>
+# Copyright (C) 2024 SUSE LLC
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,6 +17,31 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+echo "First boot of snapshot: Merging /etc changes..."
+
+if [ -e /etc/etc.syncpoint ]; then
+  rsync --dry-run /.snapshots/10/snapshot/etc/ /.snapshots/14/snapshot/etc/ --archive | tail -n +3 > /tmp/file
+  parent="$(< /etc/etc.syncpoint/transactional-update.comparewith)"
+  blacklist="$(mktemp /etc/etc.syncpoint/transactional-update.sync.changedinnewsnap.XXXXXX)"
+  rsync --archive --inplace --xattrs --acls --delete --progress "/.snapshots/${parent}/snapshot/etc/" "/etc/etc.syncpoint/" | tail -n +3 > $blacklist
+  # Convert rsync syntax octals to echo bash syntax, escape all escapes because they will also be parsed by the following echo, and write them all into a nul-separated file (in one step, so that we don't mix up end of filename and newline)
+  sed 's/\\#\([0-9]\{3\}\)/\\0\1/g' /tmp/file | sed 's/\\/\\\\/g' | while read file; do echo -en "$file\0"; done > bla
+  rsync --dry-run /.snapshots/10/snapshot/etc/ /.snapshots/14/snapshot/etc/ --from0 --archive --progress --exclude-from=bla
+
+
+# rsync \#xxx (three digits) have to be replaced with their octal value
+  sed 's/\\#\([0-9]\{3\}\)/\\0\1/g' /tmp/file | sed 's/\[/\\[/g' | sed 's/?/\?/g' | sed 's/*/\*/g' | sed 's/^\(.\)/[\1]/g' | sed 's/\\/\\\\/g' | tr '\n' '\0' > /tmp/file2
+  while read file; do echo -e $file; done < /tmp/file2
+  ARRAY=()
+  while read file; do ARRAY+=($file); done < /tmp/file2
+  for file in "${ARRAY[@]}"; do echo -e Hallo $file; done
+
+  IFS=$'\0' tr '\n' '\0' < /tmp/file | sed 's/\\#\([0-9]\{3\}\)/\\0\1/g' | sed 's/\[/\\[/g' | sed 's/?/\?/g' | sed 's/*/\*/g' | sed 's/^\(.\)/[\1]/g' | sed 's/\\/\\\\/g' > /tmp/file2
+ 
+# Test with newline, Leerzeichen, ', *, Datei die '\#012' im Namen beinhaltet, welches nicht zu einem Newline expandiert werden darf
+fi
+
 
 TU_FLAGFILE="${NEWROOT}/var/lib/overlay/transactional-update.newsnapshot"
 

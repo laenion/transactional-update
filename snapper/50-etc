@@ -16,8 +16,10 @@ reset_snapshot_writability() {
 
 create_snapshot_post() {
   snapshot="${1}"
+  # "Parent UUID" means which parent this snapshot was created from
   parentuuid="$(btrfs subvolume list -q / | grep -E " path @/.snapshots/${snapshot}/snapshot"$ | cut -f 9 -d ' ')"
   parent="$(btrfs subvolume list -u / | grep " uuid ${parentuuid} " | cut -f 9- -d ' ' | cut -f 3 -d '/')"
+  # "Parent ID" means the parent subvolume in the file system tree
   parentid="$(btrfs subvolume list / | grep -E " path @/.snapshots/${parent}/snapshot"$ | cut -f 2 -d ' ')"
 
   make_sure_snapshot_is_writable
@@ -31,7 +33,7 @@ create_snapshot_post() {
     btrfs subvolume create "/.snapshots/${snapshot}/snapshot/etc"
 
     # Syncing old /etc state
-    oldetcopts="$(findmnt --output OPTIONS --noheadings --tab-file "/.snapshots/${parent}/snapshot/etc/fstab" /etc | sed 's;/sysroot/;/;g')"
+    oldetcopts="$(findmnt --output OPTIONS --noheadings --fstab --tab-file "/.snapshots/${parent}/snapshot/etc/fstab" /etc | sed 's;/sysroot/;/;g')"
     mkdir "/var/lib/overlay/${parent}/rsync"
     trap 'rmdir "/var/lib/overlay/${parent}/rsync"' EXIT
     mount -t overlay overlay -o"${oldetcopts}" "/var/lib/overlay/${parent}/rsync"
@@ -39,9 +41,16 @@ create_snapshot_post() {
     rsync --quiet --archive --inplace --xattrs --acls --delete "/var/lib/overlay/${parent}/rsync/" "/.snapshots/${snapshot}/snapshot/etc"
 
     # Add entry for /etc
-    sed -i '/^overlay \/etc /d' "/.snapshots/${snapshot}/snapshot/etc/fstab"
+    sed -i '/^overlay[[:space:]]\+\/etc[[:space:]]/d' "/.snapshots/${snapshot}/snapshot/etc/fstab"
     echo "/etc /etc none bind 0 0" >> "/.snapshots/${snapshot}/snapshot/etc/fstab"
   fi
+
+  # Wenn von aktuellem Snapshot gebrancht wird, dann müssen die Änderungen ab dem Zeitpunkt des Branches registriert werden:
+  # * Bei einfachem Snapshot
+  # * Bei --continue, wenn Branch ausgehend von aktuellem Snapshot ist
+
+  # apply fixen
+  # Bei selfupdate auf neue Version  updated sich nur tukit, installiert snapper-Plugin aber nicht
 
   reset_snapshot_writability
 }
@@ -52,6 +61,9 @@ delete_snapshot_pre() {
   # Only operate on snapshots with /etc as subvolume
   if btrfs subvolume list / | grep -q " @/.snapshots/${snapshot}/snapshot/etc"; then
     make_sure_snapshot_is_writable
+    if btrfs subvolume list / | grep -q " @/.snapshots/${snapshot}/snapshot/etc/etc.syncpoint"; then
+      btrfs subvolume delete "/.snapshots/${snapshot}/snapshot/etc/etc.syncpoint"
+    fi
     btrfs subvolume delete "/.snapshots/${snapshot}/snapshot/etc"
   fi
 }

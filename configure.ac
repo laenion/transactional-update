@@ -1,12 +1,12 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(transactional-update, 5.0.0)
+AC_INIT([transactional-update],[5.0.0])
 # Increase on any interface change and reset revision
 LIBTOOL_CURRENT=6
 # On interface change increase if backwards compatible, reset otherwise
 LIBTOOL_AGE=2
 # Increase on *any* C/C++ library code change, reset at interface change
 LIBTOOL_REVISION=3
-AC_CANONICAL_SYSTEM
+AC_CANONICAL_TARGET
 AM_INIT_AUTOMAKE([foreign])
 AC_CONFIG_FILES([tukit.pc])
 AC_PREFIX_DEFAULT(/usr)
@@ -111,7 +111,8 @@ AS_IF([test "x$enable_man" = "xno" -a "x$with_doc" != "xno"],
 AM_CONDITIONAL(ENABLE_REGENERATE_MAN,
 	test "x$enable_man" != "xno" -a "x$with_doc" != "xno")
 
-AC_OUTPUT([Makefile lib/Makefile tukit/Makefile sbin/Makefile man/Makefile \
+AC_CONFIG_FILES([Makefile lib/Makefile tukit/Makefile sbin/Makefile man/Makefile \
 	systemd/Makefile logrotate/Makefile dracut/Makefile doc/Makefile \
-	etc/Makefile dbus/Makefile snapper/Makefile \
+	etc/Makefile dbus/Makefile snapper/Makefile tests/Makefile \
 	sbin/transactional-update])
+AC_OUTPUT

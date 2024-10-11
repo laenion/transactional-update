@@ -18,14 +18,31 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-echo "First boot of snapshot: Merging /etc changes..."
+if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
+  echo "First boot of snapshot: Merging /etc changes..."
 
-if [ -e /etc/etc.syncpoint ]; then
+  if [ $# -eq 3 ]; then
+    parentdir="$1"
+    currentdir="$2"
+    syncpoint="$3"
+  else
+    syncpoint="/etc/etc.syncpoint/"
+    parent="$(< "${syncpoint}/transactional-update.comparewith")"
+    parentdir="/.snapshots/${parent}/snapshot/etc/"
+    currentdir="/etc/"
+  fi
+  excludesfile="$(mktemp "${syncpoint}/transactional-update.sync.changedinnewsnap.XXXXXX)")"
+  # TODO: Mount parent /etc here for migrations from old overlay to new subvolumes
+  rsync --archive --inplace --xattrs --acls --delete --progress "${parentdir}" "${syncpoint}" | tail -n +3 > "${excludesfile}"
+  # `rsync` and `echo` are using a different format to represent octals ("\#xxx" vs. "\xxx"); convert to `echo` syntax
+  sed -i 's/\\#\([0-9]\{3\}\)/\\0\1/g' "${excludesfile}"
+  # Escape all escapes because they will also be parsed by the following echo, and write them all into a nul-separated file, so that we don't mix up end of filename and newline because they are unescaped now
+  sed 's/\\/\\\\/g' "${excludesfile}" | while read file; do echo -en "$file\0"; done > "${excludesfile}.tmp"
+  mv "${excludesfile}.tmp" "${excludesfile}"
+
+exit
+
   rsync --dry-run /.snapshots/10/snapshot/etc/ /.snapshots/14/snapshot/etc/ --archive | tail -n +3 > /tmp/file
-  parent="$(< /etc/etc.syncpoint/transactional-update.comparewith)"
-  blacklist="$(mktemp /etc/etc.syncpoint/transactional-update.sync.changedinnewsnap.XXXXXX)"
-  rsync --archive --inplace --xattrs --acls --delete --progress "/.snapshots/${parent}/snapshot/etc/" "/etc/etc.syncpoint/" | tail -n +3 > $blacklist
-  # Convert rsync syntax octals to echo bash syntax, escape all escapes because they will also be parsed by the following echo, and write them all into a nul-separated file (in one step, so that we don't mix up end of filename and newline)
   sed 's/\\#\([0-9]\{3\}\)/\\0\1/g' /tmp/file | sed 's/\\/\\\\/g' | while read file; do echo -en "$file\0"; done > bla
   rsync --dry-run /.snapshots/10/snapshot/etc/ /.snapshots/14/snapshot/etc/ --from0 --archive --progress --exclude-from=bla
 

@@ -1,5 +1,4 @@
 setup() {
-	bats_require_minimum_version 1.5.0
 	cd "$( dirname "$BATS_TEST_FILENAME" )"
 
 	mockdir_old_etc="$(mktemp --directory /tmp/transactional-update.synctest.olddir.XXXX)" # Simulates changed files after snapshot creation
@@ -11,24 +10,71 @@ teardown() {
 	rm -rf "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
 }
 
+SPECIAL_FILENAMES=('NULL' '- looks like an exclude' '# looks like a comment' '; looks like a comment' '[ is a bracket as a first character' '\ is a backslash as the first character' 'File
+                with spaces,
+                newlines and tabs.txt' 'rsync special characters: * \ ?.txt' 'rsync escape sequence in an actual file name: \#012.txt' 'Bash special characters: " '"'"' ( ).txt')
+
 createFile() {
-	echo "Creating file '${PWD}/$1'..."
+	echo "# Creating file '${PWD}/$1'..."
 	echo "Test" > "$1"
 }
 
-@test "Special characters in file names" {
-	pushd "${mockdir_old_etc}"
-	createFile 'File with spaces.txt'
-	createFile 'File
-		with
-		newlines and tabs.txt'
-	createFile 'rsync special characters: * \ ?.txt'
-	createFile 'rsync escape sequence in an actual file name: \#012.txt'
-	createFile 'Bash special characters: " '"'"' ( ).txt'
+createFilesWithSpecialFilenames() {
+	for file in "${SPECIAL_FILENAMES[@]}"; do
+		createFile "${file}"
+	done
+}
 
+checkFilesWithSpecialFilenames() {
+	local ret=0
+	for file in "${SPECIAL_FILENAMES[@]}"; do
+		echo -n "# Checking for existence of '${PWD}/${file}' - "
+		if [ -e "${mockdir_new_etc}/${file}" ]; then
+			echo "Found"
+		else
+			echo "Not found"
+			ret=1
+		fi
+	done
+	return ${ret}
+}
+
+debug() {
+	echo
+	echo "# Contents of exclude file:"
+	cat "${mockdir_syncpoint}/transactional-update.sync.changedinnewsnap."*
+	echo
+	#echo "# Directory listing:"
+	#find /tmp/transactional-update.synctest*
+	#echo
+}
+
+@test "Special characters in file names (must not be deleted)" {
+	pushd "${mockdir_new_etc}"
+	createFilesWithSpecialFilenames
 	popd
 
 	../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+
+	debug
+
+	pushd "${mockdir_new_etc}"
+	checkFilesWithSpecialFilenames
+	popd
+}
+
+@test "Special characters in file names (to be synced)" {
+	pushd "${mockdir_old_etc}"
+	createFilesWithSpecialFilenames
+	popd
+
+	../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+
+	debug
+
+	pushd "${mockdir_new_etc}"
+	checkFilesWithSpecialFilenames
+	popd
 }
 
 #cd /etc

@@ -12,16 +12,30 @@ teardown() {
 
 SPECIAL_FILENAMES=('NULL' '- looks like an exclude' '# looks like a comment' '; looks like a comment' '[ is a bracket as a first character' '\ is a backslash as the first character' 'File
                 with spaces,
-                newlines and tabs.txt' 'rsync special characters: * \ ?.txt' 'rsync escape sequence in an actual file name: \#012.txt' 'Bash special characters: " '"'"' ( ).txt')
+                newlines and tabs.txt' 'rsync special characters: * \ ?.txt' 'rsync escape sequence in an actual file name: \#012.txt' 'Bash special characters: " '"'"' ( ).txt', '**')
 
 createFile() {
 	echo "# Creating file '${PWD}/$1'..."
 	echo "Test" > "$1"
 }
 
-createFilesWithSpecialFilenames() {
-	for file in "${SPECIAL_FILENAMES[@]}"; do
+createFilesIn() {
+	pushd $1 >/dev/null
+	shift
+	arr=("$@")
+	for file in "${arr[@]}"; do
 		createFile "${file}"
+	done
+	popd >/dev/null
+}
+
+syncTimestamps() {
+	local referencefile
+	for file in "$@"; do
+		if [ -z "${referencefile}" ]; then
+			referencefile="${file}"
+		fi
+		touch --reference="${referencefile}" -- "$file"
 	done
 }
 
@@ -50,31 +64,126 @@ debug() {
 }
 
 @test "Special characters in file names (must not be deleted)" {
-	pushd "${mockdir_new_etc}"
-	createFilesWithSpecialFilenames
-	popd
+	createFilesIn "${mockdir_new_etc}" "${SPECIAL_FILENAMES[@]}"
 
-	../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
 
 	#debug
 
-	pushd "${mockdir_new_etc}"
+	pushd "${mockdir_new_etc}" >/dev/null
 	checkFilesWithSpecialFilenames
-	popd
+	popd >/dev/null
 }
 
 @test "Special characters in file names (to be synced)" {
-	pushd "${mockdir_old_etc}"
-	createFilesWithSpecialFilenames
-	popd
+	createFilesIn "${mockdir_old_etc}" "${SPECIAL_FILENAMES[@]}"
 
-	../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
 
 	#debug
 
-	pushd "${mockdir_new_etc}"
+	pushd "${mockdir_new_etc}" >/dev/null
 	checkFilesWithSpecialFilenames
-	popd
+	popd >/dev/null
+}
+
+@test "File contents and properties" {
+	shopt -s globstar dotglob
+	FILES=(File0.txt File1.txt File2.txt File3.txt File4.txt File5.txt File6.txt File7.txt File8.txt)
+	createFilesIn "${mockdir_old_etc}" "${FILES[@]}"
+	createFilesIn "${mockdir_new_etc}" "${FILES[@]}"
+	createFilesIn "${mockdir_syncpoint}" "${FILES[@]}"
+	syncTimestamps "${mockdir_old_etc}"/** "${mockdir_new_etc}"/** "${mockdir_syncpoint}"/**
+
+	sleep 2 # Sleep for one second to get different UNIX timestamps on file modifications
+
+	# File contents (added)
+	echo "more file contents" >> "${mockdir_old_etc}/${FILES[0]}"
+	touch --reference="${mockdir_syncpoint}/${FILES[0]}" "${mockdir_old_etc}/${FILES[0]}"
+
+	# Different file contents, but same length
+	echo "asdf" > "${mockdir_old_etc}/${FILES[1]}"
+
+	# Timestamps
+	touch -a "${mockdir_old_etc}/${FILES[2]}"
+	touch -m "${mockdir_old_etc}/${FILES[3]}"
+
+	# No changes for File4.txt
+
+	# Permissions
+	chmod 777 "${mockdir_old_etc}/${FILES[5]}"
+	touch --reference="${mockdir_syncpoint}/${FILES[5]}" "${mockdir_new_etc}/${FILES[5]}"
+
+	# Ownership
+	chown :audio "${mockdir_old_etc}/${FILES[6]}"
+	touch --reference="${mockdir_syncpoint}/${FILES[6]}" "${mockdir_new_etc}/${FILES[6]}"
+
+	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+
+	echo "# Verifying appending contents to 'File0.txt' is detected"
+	[[ "${lines[*]}" == *"File 'File0.txt' was changed in old snapshot."* ]]
+	echo "# Verifying changing the contents with same size to 'File1.txt' is detected"
+	[[ "${lines[*]}" == *"File 'File1.txt' was changed in old snapshot."* ]]
+	echo "# Verifying changing the access time of 'File2.txt' doesn't update the file"
+	[[ "${lines[*]}" != *"'File2.txt'"* ]]
+	echo "# Verifying changing the modification time of 'File3.txt' is detected"
+	[[ "${lines[*]}" == *"File 'File3.txt' was changed in old snapshot."* ]]
+	echo "# Verifying 'File4.txt' wasn't changed"
+	[[ "${lines[*]}" != *"'File4.txt'"* ]]
+	echo "# Verifying changing permissions of 'File5.txt' is detected"
+	[[ "${lines[*]}" == *"File 'File5.txt' was changed in old snapshot."* ]]
+	echo "# Verifying changing group of 'File6.txt' is detected"
+	[[ "${lines[*]}" == *"File 'File6.txt' was changed in old snapshot."* ]]
+}
+
+@test "Extended attributes" {
+	FILES=(File0.txt File1.txt)
+	createFilesIn "${mockdir_old_etc}" "${FILES[@]}"
+	createFilesIn "${mockdir_new_etc}" "${FILES[@]}"
+	createFilesIn "${mockdir_syncpoint}" "${FILES[@]}"
+	syncTimestamps "${mockdir_old_etc}"/** "${mockdir_new_etc}"/** "${mockdir_syncpoint}"/**
+	sleep 2
+
+	setfattr --name="user.test" --value="test" "${mockdir_old_etc}/${FILES[0]}"
+
+	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+
+	echo "# Verifying changing xattrs of 'File0.txt' are detected"
+        [[ "${lines[*]}" == *"Extended file attributes of 'File0.txt' were changed in old snapshot."* ]]
+	[[ "$(getfattr --no-dereference --dump --match='' "${mockdir_new_etc}/${FILES[0]}" 2>&1)" == *'user.test="test"'* ]]
+}
+
+@test "Special file types" {
+	for dir in "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"; do
+		pushd "${dir}" >/dev/null
+		touch File1
+		ln -s File1 File2
+		ln -s File1 File3
+		ln -s File1 File4
+		touch File5
+		popd >/dev/null
+	done
+	syncTimestamps "${mockdir_old_etc}"/** "${mockdir_new_etc}"/** "${mockdir_syncpoint}"/**
+
+	sleep 2
+
+	cd "${mockdir_old_etc}"
+	echo "Test" > File1
+	touch --no-dereference File3
+	ln -sf File5 File4
+	mknod File6 p
+	cd - >/dev/null
+
+	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+
+	echo "# Verifying 'File2' wasn't changed"
+	[[ "${lines[*]}" != *"'File2'"* ]]
+	echo "# Verifying changing the modification time of 'File3' is detected"
+	[[ "${lines[*]}" == *"File 'File3' was changed in old snapshot."* ]]
+	echo "# Verifying 'File4' points to the new file"
+	[[ "$(readlink --no-newline "${mockdir_new_etc}/File4")" == "File5" ]]
+	echo "# Verifying copying FIFO file correctly"
+	[ -p "${mockdir_new_etc}/File6" ]
 }
 
 # TODO: Test symlink

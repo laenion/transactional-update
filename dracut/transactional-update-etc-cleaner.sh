@@ -37,60 +37,72 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
   declare -A CURRENTFILES
   declare -A DIFFTOCURRENT
 
-  shopt -s globstar dotglob
+  shopt -s globstar dotglob nullglob
 
   cd "${syncpoint}"
-  for f in ./**; do
-    REFERENCEFILES["${f}"]=
+  for f in **; do
+    REFERENCEFILES["${f}"]=.
   done
   cd "${parentdir}"
-  for f in ./**; do
-    PARENTFILES["${f}"]=
+  for f in **; do
+    PARENTFILES["${f}"]=.
   done
   cd "${currentdir}"
-  for f in ./**; do
-    CURRENTFILES["${f}"]=
+  for f in **; do
+    CURRENTFILES["${f}"]=.
   done
 
-  # Check which files have been changed in new snapshot
+    # Check which files have been changed in new snapshot
   for file in "${!REFERENCEFILES[@]}"; do
-    if [ ! -e "${CURRENTFILES[${file}]}" ]; then
-      echo "File $file got deleted in new snapshot."
+    if [ -z "${CURRENTFILES[${file}]}" ]; then
+      echo "File '$file' got deleted in new snapshot."
       DIFFTOCURRENT[${file}]=recursiveskip
-    elif [ "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${parentdir}/${file}")" ]; then
-      echo "File $file was changed in new snapshot."
+    elif [ "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${currentdir}/${file}")" ]; then
+      echo "File '$file' was changed in new snapshot."
       DIFFTOCURRENT[${file}]=skip
-    elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" ]; then
-      echo "Extended file attributes of $file were changed in new snapshot."
+    elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${currentdir}/${file}" 2>&1 | tail --lines=+3)" ]; then
+      echo "Extended file attributes of '$file' were changed in new snapshot."
       DIFFTOCURRENT[${file}]=skip
     fi
   done
   for file in "${!CURRENTFILES[@]}"; do
-    if [ ! -e "${REFERENCEFILES[${file}]}" ]; then
-      echo "File $file was added in new snapshot."
+    if [ -z "${REFERENCEFILES[${file}]}" ]; then
+      echo "File '$file' was added in new snapshot."
       DIFFTOCURRENT[${file}]=skip
     fi
   done
 
   # Check which files have been changed in old snapshot
   for file in "${!REFERENCEFILES[@]}"; do
-    if [ ! -e "${PARENTFILES[${file}]}" ]; then
-      echo "File $file got deleted in old snapshot."
-# TODO
-
-      DIFFTOCURRENT[${file}]=recursiveskip
-    elif [ "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${parentdir}/${file}")" ]; then
-      echo "File $file was changed in new snapshot."
-      DIFFTOCURRENT[${file}]=skip
-    elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" ]; then
-      echo "Extended file attributes of $file were changed in new snapshot."
-      DIFFTOCURRENT[${file}]=skip
+    if [ -z "${PARENTFILES[${file}]}" ]; then
+      echo "File '$file' got deleted in old snapshot."
+      if [ -z "${DIFFTOCURRENT}" ]; then
+        DIFFTOCURRENT[${file}]=delete # If a directory maybe check whether some file is contained in it with "skip"? That would mean a file in that directory was changed in the new snapshot, so maybe it should be preserved? How did overlayfs handle this?
+      fi
+    elif [ "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${parentdir}/${file}")" ]; then
+      echo "File '$file' was changed in old snapshot."
+      if [ -z "${DIFFTOCURRENT}" ]; then
+        DIFFTOCURRENT[${file}]=copy # cp -a for file; touch, chmod, chown with reference file for directory
+      fi
+    elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${parentdir}/${file}" 2>&1 | tail --lines=+3)" ]; then
+      echo "Extended file attributes of '$file' were changed in old snapshot."
+      if [ -z "${DIFFTOCURRENT}" ]; then
+        DIFFTOCURRENT[${file}]=copy # getfattr --dump & setfattr --restore
+      fi
     fi
   done
-  for file in "${!CURRENTFILES[@]}"; do
-    if [ ! -e "${CURRENTFILES[${file}]}" ]; then
-      echo "File $file was added in new snapshot."
-      DIFFTOCURRENT[${file}]=skip
+  for file in "${!PARENTFILES[@]}"; do
+    if [ -z "${REFERENCEFILES[${file}]}" ]; then
+      echo "File '$file' was added in old snapshot."
+      if [ -z "${DIFFTOCURRENT}" ]; then
+        DIFFTOCURRENT[${file}]=copy
+      fi
+    fi
+  done
+
+  for file in "${!DIFFTOCURRENT[@]}"; do
+    if [ "${DIFFTOCURRENT[${file}]}" = "copy" ]; then
+      cp -ar "${parentdir}/${file}" "${currentdir}/${file}"
     fi
   done
 

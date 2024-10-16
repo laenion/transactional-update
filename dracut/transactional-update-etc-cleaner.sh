@@ -32,6 +32,70 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
     currentdir="/etc/"
   fi
 
+  declare -A REFERENCEFILES
+  declare -A PARENTFILES
+  declare -A CURRENTFILES
+  declare -A DIFFTOCURRENT
+
+  shopt -s globstar dotglob
+
+  cd "${syncpoint}"
+  for f in ./**; do
+    REFERENCEFILES["${f}"]=
+  done
+  cd "${parentdir}"
+  for f in ./**; do
+    PARENTFILES["${f}"]=
+  done
+  cd "${currentdir}"
+  for f in ./**; do
+    CURRENTFILES["${f}"]=
+  done
+
+  # Check which files have been changed in new snapshot
+  for file in "${!REFERENCEFILES[@]}"; do
+    if [ ! -e "${CURRENTFILES[${file}]}" ]; then
+      echo "File $file got deleted in new snapshot."
+      DIFFTOCURRENT[${file}]=recursiveskip
+    elif [ "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${parentdir}/${file}")" ]; then
+      echo "File $file was changed in new snapshot."
+      DIFFTOCURRENT[${file}]=skip
+    elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" ]; then
+      echo "Extended file attributes of $file were changed in new snapshot."
+      DIFFTOCURRENT[${file}]=skip
+    fi
+  done
+  for file in "${!CURRENTFILES[@]}"; do
+    if [ ! -e "${REFERENCEFILES[${file}]}" ]; then
+      echo "File $file was added in new snapshot."
+      DIFFTOCURRENT[${file}]=skip
+    fi
+  done
+
+  # Check which files have been changed in old snapshot
+  for file in "${!REFERENCEFILES[@]}"; do
+    if [ ! -e "${PARENTFILES[${file}]}" ]; then
+      echo "File $file got deleted in old snapshot."
+# TODO
+
+      DIFFTOCURRENT[${file}]=recursiveskip
+    elif [ "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %W %X %Y %Z" "${parentdir}/${file}")" ]; then
+      echo "File $file was changed in new snapshot."
+      DIFFTOCURRENT[${file}]=skip
+    elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" ]; then
+      echo "Extended file attributes of $file were changed in new snapshot."
+      DIFFTOCURRENT[${file}]=skip
+    fi
+  done
+  for file in "${!CURRENTFILES[@]}"; do
+    if [ ! -e "${CURRENTFILES[${file}]}" ]; then
+      echo "File $file was added in new snapshot."
+      DIFFTOCURRENT[${file}]=skip
+    fi
+  done
+
+exit
+
   # Check for files changed in new snapshot during update and create excludes list
   excludesfile="$(mktemp "${syncpoint}/transactional-update.sync.changedinnewsnap.XXXXXX)")"
   # TODO: Mount parent /etc here for migrations from old overlay to new subvolumes

@@ -56,7 +56,7 @@ debug() {
 
 	../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
 
-	debug
+	#debug
 
 	pushd "${mockdir_new_etc}"
 	checkFilesWithSpecialFilenames
@@ -70,12 +70,14 @@ debug() {
 
 	../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
 
-	debug
+	#debug
 
 	pushd "${mockdir_new_etc}"
 	checkFilesWithSpecialFilenames
 	popd
 }
+
+# TODO: Test symlink
 
 #cd /etc
 #

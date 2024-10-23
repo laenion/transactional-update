@@ -57,7 +57,10 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
     if [ -z "${CURRENTFILES[${file}]}" ]; then
       echo "File '$file' got deleted in new snapshot."
       DIFFTOCURRENT[${file}]=recursiveskip
-    elif [ "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${currentdir}/${file}")" ]; then
+    elif [ -d "${currentdir}/${file}" -a "$(stat --printf="%a %B %F %g %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %u %Y" "${currentdir}/${file}")" ]; then
+      echo "Directory '$file' was changed in new snapshot."
+      DIFFTOCURRENT[${file}]=skip
+    elif [ ! -d "${currentdir}/${file}" -a "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${currentdir}/${file}")" ]; then
       echo "File '$file' was changed in new snapshot."
       DIFFTOCURRENT[${file}]=skip
     elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${currentdir}/${file}" 2>&1 | tail --lines=+3)" ]; then
@@ -67,7 +70,7 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
   done
   for file in "${!CURRENTFILES[@]}"; do
     if [ -z "${REFERENCEFILES[${file}]}" ]; then
-      echo "File '$file' was added in new snapshot."
+      echo "File or directory '$file' was added in new snapshot."
       DIFFTOCURRENT[${file}]=skip
     fi
   done
@@ -76,35 +79,82 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
   for file in "${!REFERENCEFILES[@]}"; do
     if [ -z "${PARENTFILES[${file}]}" ]; then
       echo "File '$file' got deleted in old snapshot."
-      if [ -z "${DIFFTOCURRENT}" ]; then
-        DIFFTOCURRENT[${file}]=delete # If a directory maybe check whether some file is contained in it with "skip"? That would mean a file in that directory was changed in the new snapshot, so maybe it should be preserved? How did overlayfs handle this?
+      if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
+        DIFFTOCURRENT[${file}]=delete
+        if [ -d "${currentdir}/${file}" ]; then
+          for index in "${!DIFFTOCURRENT[@]}"; do
+            # If dir and some file was changed or added in new snapshot, then don't delete
+            if [[ ${index} == "${file}/"* ]]; then
+              DIFFTOCURRENT[${file}]=skip
+            fi
+          done
+        fi
       fi
-    elif [ "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${parentdir}/${file}")" ]; then
+    elif [ -d "${parentdir}/${file}" -a "$(stat --printf="%a %B %F %g %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %u %Y" "${parentdir}/${file}")" ]; then
+      echo "Directory '$file' was changed in old snapshot."
+      if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
+        DIFFTOCURRENT[${file}]=copy # cp -a for file; touch, chmod, chown with reference file for directory
+      fi
+    elif [ ! -d "${parentdir}/${file}" -a "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${parentdir}/${file}")" ]; then
       echo "File '$file' was changed in old snapshot."
-      if [ -z "${DIFFTOCURRENT}" ]; then
+      if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
         DIFFTOCURRENT[${file}]=copy # cp -a for file; touch, chmod, chown with reference file for directory
       fi
     elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${parentdir}/${file}" 2>&1 | tail --lines=+3)" ]; then
       echo "Extended file attributes of '$file' were changed in old snapshot."
-      if [ -z "${DIFFTOCURRENT}" ]; then
+      if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
         DIFFTOCURRENT[${file}]=copy # getfattr --dump & setfattr --restore
       fi
     fi
   done
   for file in "${!PARENTFILES[@]}"; do
     if [ -z "${REFERENCEFILES[${file}]}" ]; then
-      echo "File '$file' was added in old snapshot."
-      if [ -z "${DIFFTOCURRENT}" ]; then
+      echo "File or directory '$file' was added in old snapshot."
+      if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
         DIFFTOCURRENT[${file}]=copy
       fi
     fi
   done
 
-  for file in "${!DIFFTOCURRENT[@]}"; do
-    if [ "${DIFFTOCURRENT[${file}]}" = "copy" ]; then
-      cp -ar "${parentdir}/${file}" "${currentdir}/${file}"
+  # Sort files to prevent processing a file before the directory was created
+  readarray -d '' DIFFTOCURRENT_SORTED < <(printf '%s\0' "${!DIFFTOCURRENT[@]}" | sort -z)
+
+  for file in "${DIFFTOCURRENT_SORTED[@]}"; do
+    if [ "${DIFFTOCURRENT[${file}]}" = "recursiveskip" ]; then
+      for index in "${!DIFFTOCURRENT[@]}"; do
+        if [[ ${index} == "${file}/"* ]]; then
+          DIFFTOCURRENT[${index}]=skip
+        fi
+      done
+    elif [ "${DIFFTOCURRENT[${file}]}" = "delete" ]; then
+      rm -rf "${currentdir}/${file}"
+    elif [ "${DIFFTOCURRENT[${file}]}" = "copy" ]; then
+      if [ -f "${parentdir}/${file}" -a -d "${currentdir}/${file}" ] || [ -d "${parentdir}/${file}" -a -f "${currentdir}/${file}" ]; then
+        echo "File ${file} changed type between file and directory."
+        rm -r "${currentdir}/${file}"
+      fi
+      if [ -d "${parentdir}/${file}" ]; then
+        mkdir --parents "${currentdir}/${file}"
+        touch --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
+        chmod --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
+        chown --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
+
+        pushd "${parentdir}" >/dev/null
+        extattrs="$(getfattr --no-dereference --dump -- "${file}")"
+	pushd "${currentdir}" >/dev/null
+        echo "${extattrs}" | setfattr --no-dereference --restore=-
+        popd >/dev/null
+        popd >/dev/null
+      else
+        cp --no-dereference --archive "${parentdir}/${file}" "${currentdir}/${file}"
+      fi
     fi
   done
+
+# Border cases, which are defined as follows for now (mostly matching overlayfs' behavior):
+# * If a directory was newly created both in old and new after snapshot creation, then the contents of both are merged
+# * If a directory was deleted in new, but has changes or new files in old, then it stays deleted
+# * If a directory was deleted in old, but has changes or new files in new, then take contents of new
 
 exit
 

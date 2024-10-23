@@ -12,7 +12,7 @@ teardown() {
 
 SPECIAL_FILENAMES=('NULL' '- looks like an exclude' '# looks like a comment' '; looks like a comment' '[ is a bracket as a first character' '\ is a backslash as the first character' 'File
                 with spaces,
-                newlines and tabs.txt' 'rsync special characters: * \ ?.txt' 'rsync escape sequence in an actual file name: \#012.txt' 'Bash special characters: " '"'"' ( ).txt', '**')
+                newlines and tabs.txt' 'rsync special characters: * \ ?.txt' 'rsync escape sequence in an actual file name: \#012.txt' 'Bash special characters: " '"'"' ( ).txt' '**' '.hiddenfile' '-a' ' ')
 
 createFile() {
 	echo "# Creating file '${PWD}/$1'..."
@@ -145,12 +145,16 @@ debug() {
 	sleep 2
 
 	setfattr --name="user.test" --value="test" "${mockdir_old_etc}/${FILES[0]}"
+	mkdir "${mockdir_old_etc}/Dir0"
+	setfattr --name="user.test" --value="test" "${mockdir_old_etc}/Dir0"
 
 	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
 
 	echo "# Verifying changing xattrs of 'File0.txt' are detected"
         [[ "${lines[*]}" == *"Extended file attributes of 'File0.txt' were changed in old snapshot."* ]]
 	[[ "$(getfattr --no-dereference --dump --match='' "${mockdir_new_etc}/${FILES[0]}" 2>&1)" == *'user.test="test"'* ]]
+	echo "# Verifying extended attributes are applied to directory"
+	[[ "$(getfattr --no-dereference --dump --match='' "${mockdir_new_etc}/Dir0" 2>&1)" == *'user.test="test"'* ]]
 }
 
 @test "Special file types" {
@@ -176,17 +180,153 @@ debug() {
 
 	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
 
-	echo "# Verifying 'File2' wasn't changed"
+	echo "# Verifying symlink 'File2' wasn't changed"
 	[[ "${lines[*]}" != *"'File2'"* ]]
-	echo "# Verifying changing the modification time of 'File3' is detected"
+	echo "# Verifying changing the modification time of symlink 'File3' is detected"
 	[[ "${lines[*]}" == *"File 'File3' was changed in old snapshot."* ]]
-	echo "# Verifying 'File4' points to the new file"
+	echo "# Verifying symlink 'File4' points to the new file"
 	[[ "$(readlink --no-newline "${mockdir_new_etc}/File4")" == "File5" ]]
 	echo "# Verifying copying FIFO file correctly"
 	[ -p "${mockdir_new_etc}/File6" ]
 }
 
-# TODO: Test symlink
+@test "Directory handling" {
+	for dir in "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"; do
+		mkdir "${dir}/Dir1"
+		mkdir "${dir}/Dir2"
+		touch "${dir}/Dir2/FileExisting"
+		mkdir "${dir}/Dir3"
+		# Dir4 does not exist during snapshot creation
+		mkdir "${dir}/Dir5"
+		mkdir "${dir}/Dir5/Subdir"
+		touch mkdir "${dir}/Dir5/Subdir/FileInSubdir"
+		mkdir "${dir}/Dir6"
+		mkdir "${dir}/Dir6/Subdir"
+		touch mkdir "${dir}/Dir6/Subdir/FileInSubdir"
+		mkdir "${dir}/Dir7"
+		echo old > "${dir}/Dir7/ChangeInOld"
+		echo old > "${dir}/Dir7/ChangeInNew"
+		echo old > "${dir}/Dir7/noChange"
+	done
+
+	sleep 2
+
+	# Create a new directory in both old and new
+	mkdir "${mockdir_old_etc}/Dir2/DirInOld"
+	mkdir "${mockdir_new_etc}/Dir2/DirInNew"
+
+	# Create same new file in both old and new
+	echo -n "old" > "${mockdir_old_etc}/Dir3/FileInBoth"
+	echo -n "new" > "${mockdir_new_etc}/Dir3/FileInBoth"
+
+	# Create same new directory both in old and new
+	mkdir "${mockdir_old_etc}/Dir4"
+	chmod 700 "${mockdir_old_etc}/Dir4"
+	touch "${mockdir_old_etc}/Dir4/SomeFile"
+	mkdir "${mockdir_new_etc}/Dir4"
+	chmod 770 "${mockdir_new_etc}/Dir4"
+	touch "${mockdir_new_etc}/Dir4/SomeOtherFile"
+
+	# Delete directory in new snapshot, while in old snapshot add an additional file
+	rm -r "${mockdir_new_etc}/Dir5/Subdir"
+	touch "${mockdir_old_etc}/Dir5/Subdir/NewFileInSubdir"
+
+	# Delete directory in old snapshot, while in new snapshot add an additional file
+	rm -r "${mockdir_old_etc}/Dir6"
+	touch "${mockdir_new_etc}/Dir6/Subdir/NewFileInSubdir"
+
+	# Verify touching a directory doesn't trigger overwrite
+	echo -n new > "${mockdir_old_etc}/Dir7/ChangeInOld"
+	echo -n new > "${mockdir_new_etc}/Dir7/ChangeInNew"
+	touch "${mockdir_new_etc}"
+
+	run ../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+
+	echo "# Verify new directory in old Dir2 directory was copied over"
+	[ -d "${mockdir_new_etc}/Dir2/DirInOld" ]
+	echo "# Verify new directory in new Dir2 wasn't overwritten"
+	[ -d "${mockdir_new_etc}/Dir2/DirInNew" ]
+	echo "# Verify existing file in Dir2 wasn't touched"
+	[[ "${lines[*]}" != *"'Dir2/FileExisting'"* ]]
+	echo "# Verify content of file in new if file was modified in both"
+	[ "$(cat "${mockdir_new_etc}/Dir3/FileInBoth")" = "new" ]
+	echo "# Verify directory permissions of new if dir was created in both"
+	[ "$(stat --format="%a" "${mockdir_new_etc}/Dir4")" = "770" ]
+	echo "# Verify merged files if new dir was created in both"
+	[ -e "${mockdir_new_etc}/Dir4/SomeFile" ]
+	[ -e "${mockdir_new_etc}/Dir4/SomeOtherFile" ]
+	echo "# Verify directory stays deleted if deleted in new"
+	[ ! -e "${mockdir_new_etc}/Dir5/Subdir" ]
+	echo "# Verify deleting dir in old doesn't delete new / changed contents in new"
+	[ -e "${mockdir_new_etc}/Dir6/Subdir/NewFileInSubdir" ]
+	[ ! -e "${mockdir_new_etc}/Dir6/Subdir/FileInSubdir" ]
+	echo "# Verify modifying a directory doesn't affect contained files"
+	[ "$(cat "${mockdir_new_etc}/Dir7/ChangeInOld")" = "new" ]
+	[ "$(cat "${mockdir_new_etc}/Dir7/ChangeInNew")" = "new" ]
+	[ "$(cat "${mockdir_new_etc}/Dir7/noChange")" = "old" ]
+}
+
+@test "File type changes" {
+	for dir in "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"; do
+		pushd "${dir}" >/dev/null
+		touch File1
+		touch File2
+		touch File3
+		touch File4
+		touch File6
+		mkdir File7
+		touch File7/test
+		ln -s File3 File8
+		popd >/dev/null
+	done
+	syncTimestamps "${mockdir_old_etc}"/** "${mockdir_new_etc}"/** "${mockdir_syncpoint}"/**
+
+	# Delete file in old, make sure it is also deleted in new
+	rm "${mockdir_old_etc}/File1"
+
+	# Delete file in new, make sure it stays deleted
+	rm "${mockdir_new_etc}/File2"
+
+	# File -> Symlink in old
+	rm "${mockdir_old_etc}/File3"
+	pushd "${mockdir_old_etc}" >/dev/null
+	ln -s File4 File3
+	popd >/dev/null
+
+	# Nonexistent symlink
+	 ln -s broken "${mockdir_old_etc}/File5"
+
+	# File -> directory in old
+	rm "${mockdir_old_etc}/File6"
+	mkdir "${mockdir_old_etc}/File6"
+	touch "${mockdir_old_etc}/File6/test"
+
+	# Directory -> file in old
+	rm -r "${mockdir_old_etc}/File7"
+	touch "${mockdir_old_etc}/File7"
+
+	# Symlink -> Dir
+	rm "${mockdir_old_etc}/File8"
+	mkdir "${mockdir_old_etc}/File8"
+	touch "${mockdir_old_etc}/File8/test"
+
+	../dracut/transactional-update-etc-cleaner.sh "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+
+	echo "# Verify file deleted in old also gets deleted in new (if not modified in new)"
+	[ ! -e "${mockdir_new_etc}/File1" ]
+	echo "# Verify file deleted in new stays deleted"
+	[ ! -e "${mockdir_new_etc}/File2" ]
+	echo "# Verify File3 got changed from file to symlink"
+	[ -L "${mockdir_new_etc}/File3" ]
+	echo "# Verfify copying up broken symlink"
+	[ -L "${mockdir_new_etc}/File5" ]
+	echo "# Verify File6 got changed from file to directory"
+	[ -e "${mockdir_new_etc}/File6/test" ]
+	echo "# Verify File7 got changed from directory to file"
+	[ -f "${mockdir_new_etc}/File7" ]
+	echo "# Verify File8 got changed from symlink to directory"
+	[ -f "${mockdir_old_etc}/File8/test" ]
+}
 
 #cd /etc
 #

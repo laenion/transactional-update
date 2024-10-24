@@ -328,6 +328,15 @@ debug() {
 	[ -f "${mockdir_old_etc}/File8/test" ]
 }
 
+@test "Command line options" {
+	# Dry run
+	touch "${mockdir_old_etc}/File1"
+	../dracut/transactional-update-etc-cleaner.sh --dry-run "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+	../dracut/transactional-update-etc-cleaner.sh -n "${mockdir_old_etc}" "${mockdir_new_etc}" "${mockdir_syncpoint}"
+	echo "# Verify no files were changed during dry-run"
+	[ ! -e "${mockdir_new_etc}/File1" ]
+}
+
 #cd /etc
 #
 ## Step 1: Prepare environment

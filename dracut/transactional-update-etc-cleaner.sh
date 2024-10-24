@@ -18,10 +18,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+if [ "$1" == "--dry-run" -o "$1" == "-n" ]; then
+  DRYRUN=1
+  shift
+fi
+
 if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
   echo "First boot of snapshot: Merging /etc changes..."
 
   if [ $# -eq 3 ]; then
+    # Allow overwriting default locations for testing
     parentdir="$1/"
     currentdir="$2/"
     syncpoint="$3/"
@@ -131,22 +137,28 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
     elif [ "${DIFFTOCURRENT[${file}]}" = "copy" ]; then
       if [ -f "${parentdir}/${file}" -a -d "${currentdir}/${file}" ] || [ -d "${parentdir}/${file}" -a -f "${currentdir}/${file}" ]; then
         echo "File ${file} changed type between file and directory."
-        rm -r "${currentdir}/${file}"
+        if [ -z "${DRYRUN}" ]; then
+          rm -r "${currentdir}/${file}"
+        fi
       fi
       if [ -d "${parentdir}/${file}" ]; then
-        mkdir --parents "${currentdir}/${file}"
-        touch --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
-        chmod --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
-        chown --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
+        if [ -z "${DRYRUN}" ]; then
+          mkdir --parents "${currentdir}/${file}"
+          touch --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
+          chmod --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
+          chown --no-dereference --reference="${parentdir}/${file}" "${currentdir}/${file}"
 
-        pushd "${parentdir}" >/dev/null
-        extattrs="$(getfattr --no-dereference --dump -- "${file}")"
-	pushd "${currentdir}" >/dev/null
-        echo "${extattrs}" | setfattr --no-dereference --restore=-
-        popd >/dev/null
-        popd >/dev/null
+          pushd "${parentdir}" >/dev/null
+          extattrs="$(getfattr --no-dereference --dump -- "${file}")"
+          pushd "${currentdir}" >/dev/null
+          echo "${extattrs}" | setfattr --no-dereference --restore=-
+          popd >/dev/null
+          popd >/dev/null
+        fi
       else
-        cp --no-dereference --archive "${parentdir}/${file}" "${currentdir}/${file}"
+        if [ -z "${DRYRUN}" ]; then
+          cp --no-dereference --archive "${parentdir}/${file}" "${currentdir}/${file}"
+        fi
       fi
     fi
   done

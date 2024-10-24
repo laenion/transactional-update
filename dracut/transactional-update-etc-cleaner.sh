@@ -18,12 +18,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-if [ "$1" == "--dry-run" -o "$1" == "-n" ]; then
+if [ "$1" == "--dry-run" ] || [ "$1" == "-n" ]; then
   DRYRUN=1
   shift
 fi
 
-if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
+if [ -e /etc/etc.syncpoint ] || [ $# -eq 3 ]; then
   echo "First boot of snapshot: Merging /etc changes..."
 
   if [ $# -eq 3 ]; then
@@ -58,15 +58,15 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
     CURRENTFILES["${f}"]=.
   done
 
-    # Check which files have been changed in new snapshot
+  # Check which files have been changed in new snapshot
   for file in "${!REFERENCEFILES[@]}"; do
     if [ -z "${CURRENTFILES[${file}]}" ]; then
       echo "File '$file' got deleted in new snapshot."
       DIFFTOCURRENT[${file}]=recursiveskip
-    elif [ -d "${currentdir}/${file}" -a "$(stat --printf="%a %B %F %g %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %u %Y" "${currentdir}/${file}")" ]; then
+    elif [ -d "${currentdir}/${file}" ] && [ "$(stat --printf="%a %B %F %g %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %u %Y" "${currentdir}/${file}")" ]; then
       echo "Directory '$file' was changed in new snapshot."
       DIFFTOCURRENT[${file}]=skip
-    elif [ ! -d "${currentdir}/${file}" -a "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${currentdir}/${file}")" ]; then
+    elif [ ! -d "${currentdir}/${file}" ] && [ "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${currentdir}/${file}")" ]; then
       echo "File '$file' was changed in new snapshot."
       DIFFTOCURRENT[${file}]=skip
     elif [ "$(getfattr --no-dereference --dump --match='' "${syncpoint}/${file}" 2>&1 | tail --lines=+3)" != "$(getfattr --no-dereference --dump --match='' "${currentdir}/${file}" 2>&1 | tail --lines=+3)" ]; then
@@ -88,20 +88,20 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
       if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
         DIFFTOCURRENT[${file}]=delete
         if [ -d "${currentdir}/${file}" ]; then
+          # If some file was changed or added in a subdir of the new snapshot, then don't delete
           for index in "${!DIFFTOCURRENT[@]}"; do
-            # If dir and some file was changed or added in new snapshot, then don't delete
             if [[ ${index} == "${file}/"* ]]; then
               DIFFTOCURRENT[${file}]=skip
             fi
           done
         fi
       fi
-    elif [ -d "${parentdir}/${file}" -a "$(stat --printf="%a %B %F %g %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %u %Y" "${parentdir}/${file}")" ]; then
+    elif [ -d "${parentdir}/${file}" ] && [ "$(stat --printf="%a %B %F %g %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %u %Y" "${parentdir}/${file}")" ]; then
       echo "Directory '$file' was changed in old snapshot."
       if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
         DIFFTOCURRENT[${file}]=copy # cp -a for file; touch, chmod, chown with reference file for directory
       fi
-    elif [ ! -d "${parentdir}/${file}" -a "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${parentdir}/${file}")" ]; then
+    elif [ ! -d "${parentdir}/${file}" ] && [ "$(stat --printf="%a %B %F %g %s %u %Y" "${syncpoint}/${file}")" != "$(stat --printf="%a %B %F %g %s %u %Y" "${parentdir}/${file}")" ]; then
       echo "File '$file' was changed in old snapshot."
       if [ -z "${DIFFTOCURRENT[${file}]}" ]; then
         DIFFTOCURRENT[${file}]=copy # cp -a for file; touch, chmod, chown with reference file for directory
@@ -133,12 +133,12 @@ if [ -e /etc/etc.syncpoint -o $# -eq 3 ]; then
         fi
       done
     elif [ "${DIFFTOCURRENT[${file}]}" = "delete" ]; then
-      rm -rf "${currentdir}/${file}"
+      rm -rf "${currentdir:?}/${file}"
     elif [ "${DIFFTOCURRENT[${file}]}" = "copy" ]; then
-      if [ -f "${parentdir}/${file}" -a -d "${currentdir}/${file}" ] || [ -d "${parentdir}/${file}" -a -f "${currentdir}/${file}" ]; then
+      if { [ -f "${parentdir}/${file}" ] && [ -d "${currentdir}/${file}" ]; } || { [ -d "${parentdir}/${file}" ] && [ -f "${currentdir}/${file}" ]; }; then
         echo "File ${file} changed type between file and directory."
         if [ -z "${DRYRUN}" ]; then
-          rm -r "${currentdir}/${file}"
+          rm -r "${currentdir:?}/${file}"
         fi
       fi
       if [ -d "${parentdir}/${file}" ]; then

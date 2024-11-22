@@ -10,6 +10,7 @@
 #include "Log.hpp"
 #include "Snapshot/Snapper.hpp"
 #include "Snapshot/Podman.hpp"
+#include "Snapshot/ContainerSnap.hpp"
 using namespace std;
 
 namespace TransactionalUpdate {
@@ -21,6 +22,8 @@ unique_ptr<SnapshotManager> SnapshotFactory::get() {
             sm = "snapper";
         else if (filesystem::exists("/usr/bin/podman"))
             sm = "podman";
+        else if (filesystem::exists("/usr/bin/container-snap"))
+            sm = "containersnap";
         else
             throw runtime_error{"No snapshot manager found using 'auto'."};
     }
@@ -30,6 +33,8 @@ unique_ptr<SnapshotManager> SnapshotFactory::get() {
         return make_unique<Snapper>();
     } else if (sm == "podman") {
         return make_unique<Podman>();
+    } else if (sm == "containersnap") {
+      return make_unique<ContainerSnap>();
     } else {
         throw runtime_error{"Unsupported snapshot manager '" + sm + "'."};
     }

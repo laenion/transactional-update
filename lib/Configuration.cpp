@@ -27,7 +27,7 @@ Configuration::Configuration() {
         {"REBOOT_ALLOW_KEXEC", "false"},
         {"REBOOT_NEEDED_FILE", "/run/reboot-needed"},
         {"OCI_TARGET", ""},
-        {"SNAPSHOT_MANAGER", "snapper"}
+        {"SNAPSHOT_MANAGER", "auto"}
     };
     for(auto &[key, value] : defaults) {
         error = econf_setStringValue(kf_defaults, "", key, value);

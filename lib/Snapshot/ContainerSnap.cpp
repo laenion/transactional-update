@@ -31,8 +31,9 @@ void ContainerSnap::deleteSnap(std::string id) {
   callContainerSnap("delete --id=" + id);
 }
 
-void ContainerSnap::rollbackTo(std::string id) {
+std::string ContainerSnap::rollback(std::string id) {
   callContainerSnap("switch " + id);
+  return id;
 }
 
 std::deque<std::map<std::string, std::string>>
@@ -113,6 +114,10 @@ void ContainerSnapshot::setReadOnly(bool readonly) {
   callContainerSnap("set-readonly-state " +
                     std::string(readonly ? "--readonly" : "--no-readonly") +
                     " " + this->snapshotId);
+}
+
+void ContainerSnapshot::cleanup(bool important) {
+  ContainerSnap().deleteSnap(this->snapshotId);
 }
 
 } // namespace TransactionalUpdate

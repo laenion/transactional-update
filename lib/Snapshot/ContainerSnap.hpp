@@ -26,7 +26,7 @@ public:
   std::string getCurrent() override;
   std::string getDefault() override;
   void deleteSnap(std::string id) override;
-  void rollbackTo(std::string id) override;
+  std::string rollback(std::string id) override;
 };
 
 class ContainerSnapshot : public Snapshot {
@@ -44,6 +44,7 @@ public:
   bool isReadOnly() override;
   void setDefault() override;
   void setReadOnly(bool readonly) override;
+  void cleanup(bool important) override;
 };
 
 } // namespace TransactionalUpdate

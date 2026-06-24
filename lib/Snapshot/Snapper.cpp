@@ -131,8 +131,12 @@ void Snapper::deleteSnap(std::string id) {
     callSnapper("delete " + id);
 }
 
-void Snapper::rollbackTo(std::string id) {
-    callSnapper("rollback " + id);
+std::string Snapper::rollbackTo(std::string id) {
+    snapshotId = callSnapper("rollback --print-number " + id);
+    snapshotId = snapshotId.substr(snapshotId.rfind(' ') + 1); // [gh#openSUSE/snapper#1154]
+    snapshotId = snapshotId.substr(0, snapshotId.rfind('.'));
+    Util::rtrim(snapshotId);
+    return snapshotId;
 }
 
 bool Snapper::isInProgress() {

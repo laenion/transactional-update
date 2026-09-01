@@ -100,12 +100,12 @@ std::unique_ptr<Snapshot> Directory::create(std::string base, std::string descri
     fs::create_directories(snapshotsDir() / snapshotId);
     std::time_t result = std::time(nullptr);
 
-    Util::exec("rsync --archive '" + baseRoot.native() + "/' '" + getRoot().native() + "/'");
-
     writeMeta(snapshotId, "description", description);
     writeMeta(snapshotId, "date", std::ctime(&result));
     writeMeta(snapshotId, "in-progress", "yes");
     writeMeta(snapshotId, "read-only", "no");
+
+    Util::exec("rsync --archive '" + baseRoot.native() + "/' '" + getRoot().native() + "/'");
 
     return std::make_unique<Directory>(snapshotId);
 }

@@ -622,6 +622,7 @@ void Transaction::finalize() {
     TransactionalUpdate::Plugins plugins{this, pImpl->keepIfError};
     plugins.run("finalize-pre", nullptr);
 
+    StateStore state{};
     std::string id = pImpl->snapshot->getUid();
     state.add("UNUSED_SNAPSHOTS", id);
     state.add("LAST_WORKING_SNAPSHOTS", pImpl->snapshotMgr->getCurrent());

@@ -43,6 +43,7 @@ unique_ptr<SnapshotManager> SnapshotFactory::get() {
 }
 
 void SnapshotManager::cleanupSnap(std::string snapid, bool important, std::string statevar) {
+    StateStore state{};
     StateStore tmpState = StateStore(config.get("TMP_STATE_FILE"));
     if (snapid != getCurrent() && snapid != tmpState.get("LAST_BOOTED") && snapid != getDefault()) {
         try {
@@ -65,6 +66,7 @@ void SnapshotManager::cleanupSnap(std::string snapid, bool important, std::strin
 
 void SnapshotManager::cleanup() {
     string snapshot;
+    StateStore state{};
 
     stringstream wsnapshots(state.get("LAST_WORKING_SNAPSHOTS"));
     state.set("LAST_WORKING_SNAPSHOTS", "");
@@ -90,6 +92,7 @@ void SnapshotManager::cleanup() {
 
 string SnapshotManager::rollbackTo(std::string id) {
     std::string newDefaultId = rollback(id);
+    StateStore state{};
     if (! state.contains("LAST_WORKING_SNAPSHOTS", newDefaultId)) {
         auto snapshot = open(id);
         state.add("UNUSED_SNAPSHOTS", newDefaultId);
